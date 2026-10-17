@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DEHOGA Vorteilsrechner</title>
+<script>
+/* =====================================================================
+   DATEN – alle Tarif- und Beitragswerte an EINER Stelle.
+   Jeder Wert: { wert, quelle, stand, zielgruppe: 'gastro' | 'hotel' | 'alle' }
+   Änderungen nur hier vornehmen. Der Rechner liest ausschließlich diesen Block.
+   ===================================================================== */
+const Q = {
+  beitrag: { quelle: 'DEHOGA BW, Beitragsordnung 2026 (Stand 03.11.2025), Bankeinzug', stand: 'gültig ab 01.01.2026' },
+  gema:    { quelle: 'GEMA-Tarifübersicht Gaststätten, Hotels, Pensionen 2026 (Jahresvertrag, netto)', stand: '01.01.–31.12.2026' },
+  nachl:   { quelle: 'DEHOGA BW, Broschüre 12/2024 (20 % auf GEMA, GVL, ZWF, VG Media, VG Wort)', stand: 'Broschüre 12/2024' },
+  rvg:     { quelle: '§ 13 RVG i. d. F. KostBRÄG 2025; Kostenrechner_Arbeitsgericht_2026 1.xlsx', stand: 'gültig ab 01.06.2025' },
+  vv:      { quelle: 'RVG-Vergütungsverzeichnis Nr. 3100, 3104, 1003, 7002', stand: 'gültig ab 01.06.2025' },
+  gkg:     { quelle: '§ 34 GKG i. d. F. KostBRÄG 2025, KV Nr. 8210; Kostenrechner_Arbeitsgericht_2026 1.xlsx', stand: 'gültig ab 01.06.2025' },
+  partner: { quelle: 'DEHOGA BW, Broschüre 10/2024; Rabatt-Ansatz aus DEHOGA_BW_Vorteilsrechner.xlsx', stand: 'Broschüre 10/2024' },
+  team:    { quelle: 'Vorgabe Projektteam', stand: '17.10.2026' },
+  akad:    { quelle: 'DEHOGA Akademie, FAQ: Rechenbeispiel 1-Tagesseminar (Mitgliederrabatt 145,45 € auf 489,09 €)', stand: 'abgerufen 17.10.2026' },
+  klass:   { quelle: 'dehogabw.de, Hotelklassifizierung: Gebühren Mitglied / Nichtmitglied (Katalog 2025–2030)', stand: 'abgerufen 17.10.2026' },
+  sds:     { quelle: 'dehogabw.de, „Schmeck den Süden“-Gastronomen: Jahresbeitrag Mitglied / Nichtmitglied', stand: 'abgerufen 17.10.2026' },
+  rb:      { quelle: 'Vorgabe Projektteam: Stundensatz Jurist 200 € netto', stand: '17.10.2026' },
+  akadfrei:{ quelle: 'DEHOGA Akademie, FAQ: einzelne Seminare für Ausbildungs- und Mitgliedsbetriebe kostenfrei', stand: 'abgerufen 17.10.2026' },
+  nutzen:  { quelle: 'DEHOGA_BW_Mitgliedschaft_Nichtmonetaere_Vorteile.md (auf Basis offizieller DEHOGA-Quellen)', stand: 'Recherche 17.10.2026' }
+};
+const w = (wert, q, zielgruppe) => ({ wert, quelle: q.quelle, stand: q.stand, zielgruppe });
+
+const DATEN = {
+  beitrag: {
+    // Monatsbeitrag nach Beschäftigten (Köpfe)
+    // Monatsbeitrag bei Bankeinzug (in Klammern: per Rechnung)
+    staffel: [
+      { ab: 0,   bis: 5,    monat: w(32.54, Q.beitrag, 'alle') },   // Rechnung 33,20
+      { ab: 6,   bis: 7,    monat: w(43.71, Q.beitrag, 'alle') },   // Rechnung 44,60
+      { ab: 8,   bis: 10,   monat: w(59.88, Q.beitrag, 'alle') },   // Rechnung 61,10
+      { ab: 11,  bis: 20,   monat: w(68.40, Q.beitrag, 'alle') },   // Rechnung 69,80
+      { ab: 21,  bis: 50,   monat: w(110.84, Q.beitrag, 'alle') },  // Rechnung 113,10
+      { ab: 51,  bis: 100,  monat: w(178.07, Q.beitrag, 'alle') },  // Rechnung 181,70
+      { ab: 101, bis: null, monat: w(221.09, Q.beitrag, 'alle') }   // Rechnung 225,60
+    ],
+    medienumlageMonat: w(2.00, Q.beitrag, 'alle'),
+    zimmerumlageMonat: w(0.47, Q.beitrag, 'hotel')
+  },
+  gema: {
+    nachlass: w(0.20, Q.nachl, 'alle'),
+    maxFlaeche: w(300, Q.gema, 'gastro'),
+    // Radio + Streaming: Übersicht nennt keinen Kombipreis → vorsichtig nur mit dem höheren Einzeltarif (Radio) rechnen
+    kombiRechnetMit: w('Hörfunk', Q.gema, 'gastro'),
+    tarif: {
+      'Tonträger|100': w(295.08, Q.gema, 'gastro'),  'Tonträger|200': w(590.04, Q.gema, 'gastro'),  'Tonträger|300': w(884.88, Q.gema, 'gastro'),
+      'Hörfunk|100':   w(395.90, Q.gema, 'gastro'),  'Hörfunk|200':   w(791.64, Q.gema, 'gastro'),  'Hörfunk|300':   w(1187.21, Q.gema, 'gastro'),
+      'TV|keine':      w(259.41, Q.gema, 'gastro'),  'TV|Hörfunk':    w(213.07, Q.gema, 'gastro'),  'TV|Tonträger':  w(174.76, Q.gema, 'gastro'),
+      'GB|keine|100':  w(823.54, Q.gema, 'gastro'),  'GB|keine|200':  w(1228.30, Q.gema, 'gastro'), 'GB|keine|300':  w(1638.52, Q.gema, 'gastro'),
+      'GB|Hörfunk|100':w(686.23, Q.gema, 'gastro'),  'GB|Hörfunk|200':w(1023.78, Q.gema, 'gastro'), 'GB|Hörfunk|300':w(1365.44, Q.gema, 'gastro'),
+      'GB|Tonträger|100':w(548.91, Q.gema, 'gastro'),'GB|Tonträger|200':w(819.09, Q.gema, 'gastro'),'GB|Tonträger|300':w(1092.01, Q.gema, 'gastro')
+    },
+    hotelzimmerWeiterleitung: w(31.72, Q.gema, 'hotel')   // je Zimmer und Jahr
+  },
+  arbeitsrecht: {
+    streitwertMonate: w(3, { quelle: '§ 42 Abs. 2 GKG', stand: 'geltendes Recht' }, 'alle'),
+    rvgGrund: w(51.50, Q.rvg, 'alle'),
+    // [Wert über, bis, je angefangene, Erhöhung]
+    rvgStaffel: [
+      [500, 2000, 500, 41.50], [2000, 10000, 1000, 59.50], [10000, 25000, 3000, 55.00],
+      [25000, 50000, 5000, 86.00], [50000, 200000, 15000, 99.50], [200000, 500000, 30000, 140.00],
+      [500000, Infinity, 50000, 175.00]
+    ].map(s => w(s, Q.rvg, 'alle')),
+    gkgGrund: w(40.00, Q.gkg, 'alle'),
+    gkgStaffel: [
+      [500, 2000, 500, 21.00], [2000, 10000, 1000, 22.50], [10000, 25000, 3000, 30.50],
+      [25000, 50000, 5000, 40.50], [50000, 200000, 15000, 140.00], [200000, 500000, 30000, 210.00],
+      [500000, Infinity, 50000, 210.00]
+    ].map(s => w(s, Q.gkg, 'alle')),
+    satzGerichtUrteil: w(2.0, Q.gkg, 'alle'),   // 1. Instanz; bei Vergleich entfällt die Gebühr
+    satzVerfahren: w(1.3, Q.vv, 'alle'),
+    satzTermin:    w(1.2, Q.vv, 'alle'),
+    satzEinigung:  w(1.0, Q.vv, 'alle'),
+    pauschaleSatz: w(0.20, Q.vv, 'alle'),
+    pauschaleMax:  w(20.00, Q.vv, 'alle')
+  },
+  rechtsberatung: {
+    stundensatz: w(200.00, Q.rb, 'alle')
+  },
+  weiterbildung: {
+    ersparnisJeSeminartag: w(145.45, Q.akad, 'alle'),
+    kostenloseSeminare: { text: 'Einzelne Seminare der DEHOGA Akademie sind für Mitgliedsbetriebe sogar kostenlos.', quelle: Q.akadfrei.quelle, stand: Q.akadfrei.stand, zielgruppe: 'alle' }
+  },
+  klassifizierung: {           // Wiederholungsklassifizierung, alle 3 Jahre (vorsichtiger als Erstklassifizierung)
+    grundMitglied: w(420.00, Q.klass, 'hotel'), grundNicht: w(960.00, Q.klass, 'hotel'),
+    zimmerMitglied: w(12.00, Q.klass, 'hotel'), zimmerNicht: w(13.80, Q.klass, 'hotel'),
+    gueltigJahre: w(3, Q.klass, 'hotel')
+  },
+  schmeckDenSueden: {
+    jahrMitglied: w(270.00, Q.sds, 'gastro'), jahrNicht: w(505.00, Q.sds, 'gastro')
+  },
+  // Nur wiederkehrende Rabatte mit belegtem Wert; vorsichtiger Ansatz statt „bis zu“-Maximum
+  partner: [
+    { name: 'RVM Versicherungsmakler', vorteil: '10 % auf Sach-/Haftpflicht nach Versicherungs-Check', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'Anticimex', beispiel: true, vorteil: '15 % auf Schädlingspakete', ansatz: w(0.15, Q.partner, 'alle') },
+    { name: 'Eurofins', beispiel: true, vorteil: '5–15 % je Leistung (Ansatz 5 %)', ansatz: w(0.05, Q.partner, 'alle') },
+    { name: 'Maric Airclean', vorteil: '15–20 % Reinigung Küchenabluft (Ansatz 15 %)', ansatz: w(0.15, Q.partner, 'alle') },
+    { name: 'Vogt Reinigungsmittel', vorteil: 'mindestens 15 %', ansatz: w(0.15, Q.partner, 'alle') },
+    { name: 'Papstar', vorteil: '10 % online auf bestimmte Verbrauchsartikel', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'Viking-Raja', vorteil: 'bis zu 25 % (Ansatz: 2 % Skonto)', ansatz: w(0.02, Q.partner, 'alle') },
+    { name: 'MEWA Berufsbekleidung', beispiel: true, vorteil: '5 % auf Artikeleinzelpreise', ansatz: w(0.05, Q.partner, 'alle') },
+    { name: 'Flyeralarm', vorteil: '3 % auf Online-Bestellungen', ansatz: w(0.03, Q.partner, 'alle') },
+    { name: 'Itacs', vorteil: '10 % auf Office-365-Lizenzen', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'Kronoton', vorteil: 'ca. 20 % auf Listenpreis', ansatz: w(0.20, Q.partner, 'alle') },
+    { name: 'Eduxx (Brunch-Lunch-Dinner)', vorteil: '20–25 % (Ansatz 20 %)', ansatz: w(0.20, Q.partner, 'alle') },
+    { name: 'DEHOGA Gastro-Vermarktung', vorteil: '50 % auf „Schmeck den Süden“ / „Haus der BW Weine“', ansatz: w(0.50, Q.partner, 'alle') },
+    { name: 'Lohn-AG', vorteil: '5 % auf Lohnabrechnungskosten', ansatz: w(0.05, Q.partner, 'alle') },
+    { name: 'Weikamp Sofortmeldung', vorteil: '10 % auf Bereitschaftspauschale', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'Priolan Datenschutz', vorteil: 'Tagessatz 16 % günstiger', ansatz: w(0.16, Q.partner, 'alle') },
+    { name: 'ATU', vorteil: 'bis 19 % Wartung (Ansatz 10 %)', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'Sixt', beispiel: true, vorteil: 'bis zu 33 % (Ansatz 10 %)', ansatz: w(0.10, Q.partner, 'alle') },
+    { name: 'DIRS21', vorteil: '10–30 % auf Servicegebühren (Ansatz 10 %)', ansatz: w(0.10, Q.partner, 'hotel') },
+    { name: 'DEHOGA Klassifizierung', vorteil: '50 % auf Sterneklassifizierung', ansatz: w(0.50, Q.partner, 'hotel') },
+    { name: 'ALLERGIKA', vorteil: 'bis zu 50 % Anti-Milbenbezüge (Ansatz 25 %)', ansatz: w(0.25, Q.partner, 'hotel') },
+    { name: 'MANZ-DÖBELE', vorteil: '5 % Sauna/Infrarot', ansatz: w(0.05, Q.partner, 'hotel') }
+  ],
+  // Nicht-monetäre Vorteile – erweiterbar: einfach weitere Zeile im gleichen Format ergänzen.
+  // status: 'belegt' – andere Werte erzeugen im Rechner ein Kennzeichen neben dem Titel
+  nichtMonetaer: [
+    { id: 'sicherheit', titel: 'Sicherheit', beschreibung: 'Fachliche und rechtliche Unterstützung bei schwierigen betrieblichen Fragen.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'ansprechpartner', titel: 'Persönliche Ansprechpartner', beschreibung: 'Regionale Anlaufstellen, die die Branche und ihre Anforderungen kennen.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'interessen', titel: 'Politische Interessenvertretung', beschreibung: 'Ihre Anliegen werden gebündelt gegenüber Politik und Öffentlichkeit vertreten.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'austausch', titel: 'Kollegialer Austausch', beschreibung: 'Erfahrungen teilen, Lösungsansätze kennenlernen, Kontakte knüpfen.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'gemeinschaft', titel: 'Gemeinschaft und Rückhalt', beschreibung: 'Teil einer Gemeinschaft aus Gastronomie und Hotellerie, die den Branchenalltag kennt.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'information', titel: 'Information und Orientierung', beschreibung: 'Neue Entwicklungen und Anforderungen früh erkennen und verständlich einordnen.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'wissen', titel: 'Wissen und Weiterentwicklung', beschreibung: 'Praktische Impulse und neue Fähigkeiten durch Beratung und Weiterbildung.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'mitgestaltung', titel: 'Mitgestaltung', beschreibung: 'Eigene Erfahrungen über Kreisstellen, Fachgruppen und Ehrenamt einbringen.', status: 'belegt', quelle: Q.nutzen.quelle, stand: Q.nutzen.stand, zielgruppe: 'alle' },
+    { id: 'kongresse', titel: 'Exklusive Teilnahme an Fachkongressen', beschreibung: 'Wissen und Kontakte aus erster Hand.', status: 'belegt', quelle: Q.team.quelle, stand: Q.team.stand, zielgruppe: 'alle' },
+    { id: 'intergastra', titel: 'Kostenlose Tickets für die INTERGASTRA', beschreibung: 'Die Leitmesse für Hotellerie und Gastronomie in Stuttgart.', status: 'belegt', quelle: Q.team.quelle, stand: Q.team.stand, zielgruppe: 'alle' }
+  ],
+  // Veröffentlichte Stimmen (vom Verband ausgewählt). art: 'zitat' = wörtlich, 'sinngemaess' = Zusammenfassung
+  stimmen: [
+    { person: 'Charlotte Eberhardt', betrieb: 'Postbar, Riedlingen', art: 'zitat', text: 'Beim DEHOGA fühle ich mich ernst genommen und gut aufgehoben.', thema: 'Betriebsberatung', quelle: 'DEHOGA BW, Leporello „Vorteile der DEHOGA-Mitgliedschaft“, S. 2', stand: '01/2025', zielgruppe: 'alle' },
+    { person: 'Michael Goliath', betrieb: 'Zum Weißen Rössel, Dielheim', art: 'sinngemaess', text: 'Bei Konflikten mit Mitarbeitenden bis hin zum Gerichtsverfahren war die Rechtsberatung für ihn die entscheidende Unterstützung.', thema: 'Rechtsberatung', quelle: 'DEHOGA BW, Leporello „Vorteile der DEHOGA-Mitgliedschaft“, S. 2', stand: '01/2025', zielgruppe: 'alle' },
+    { person: 'Verena Bellof', betrieb: 'Thai & Wine, Mannheim', art: 'sinngemaess', text: 'Ihr Beitrittsgrund: als Quereinsteigerin eine Ansprechpartnerin für Fragen und Probleme zu haben.', thema: 'Ansprechpartner', quelle: 'dehogabw.de, „Mitglied im DEHOGA werden“', stand: 'ohne Datum', zielgruppe: 'alle' },
+    { person: 'Silke Boch-Textor', betrieb: 'Hotel Engel, Todtnauberg', art: 'sinngemaess', text: 'Sie hebt hervor, wie viel Rezeption und Housekeeping in den Akademie-Seminaren lernen.', thema: 'Weiterbildung', quelle: 'DEHOGA BW, Leporello „Vorteile der DEHOGA-Mitgliedschaft“, S. 2', stand: '01/2025', zielgruppe: 'hotel' }
+  ],
+  // Interessenvertretung 10/2021–10/2026. Regel: „Der DEHOGA hat sich dafür eingesetzt; beschlossen wurde …“ – keine Alleinleistung, kein exklusiver Mitgliedervorteil.
+  lobby: [
+    { gruppe: 'erreicht', thema: '7 % Umsatzsteuer auf Speisen – dauerhaft', ebene: 'Bund', ergebnis: 'Seit 1. Januar 2026 unbefristet 7 % auf Speisen in der Gastronomie (Getränke ausgenommen).', url: 'https://www.bundesregierung.de/breg-de/aktuelles/steueraenderungsgesetz-bundesrat-2383684', stand: '17.10.2026', zielgruppe: 'alle' },
+    { gruppe: 'erreicht', thema: 'Einfacheres Gaststättenrecht', ebene: 'Baden-Württemberg', ergebnis: 'Seit 1. Januar 2026 Anzeige statt Erlaubnis, weniger Doppelprüfungen. Das Land bestätigt die Einbindung des DEHOGA BW.', url: 'https://wm.baden-wuerttemberg.de/de/wirtschaft/aufsicht-und-recht/gaststaettenrecht', stand: '17.10.2026', zielgruppe: 'gastro' },
+    { gruppe: 'offen', thema: 'Wochenarbeitszeit statt starrer Tagesgrenze', ebene: 'Bund', ergebnis: 'Forderung im September 2026 erneuert; noch nicht umgesetzt.', url: 'https://www.dehogabw.de/it/informieren/aktuelles/detail?cHash=337d44fb65b2aa507856e242744e563c&tx_news_pi1%5Baction%5D=detail&tx_news_pi1%5Bcontroller%5D=News&tx_news_pi1%5Bnews%5D=1192', stand: '17.10.2026', zielgruppe: 'alle' },
+    { gruppe: 'offen', thema: 'Minijobs bezahlbar halten', ebene: 'Bund', ergebnis: 'Gegen zusätzliche Belastungen; Forderung im September 2026 bekräftigt.', url: 'https://www.dehogabw.de/informieren/aktuelles/detail/dehoga-praesident-zoellick-minijobs-muessen-bezahlbar-bleiben', stand: '17.10.2026', zielgruppe: 'alle' },
+    { gruppe: 'offen', thema: 'Weniger Alltagsbürokratie', ebene: 'Land, Kommunen, Bund', ergebnis: '85 gemeldete Belastungen aus den Betrieben eingebracht; Umsetzung offen.', url: 'https://www.dehogabw.de/informieren/im-fokus/buerokratieabbau', stand: '17.10.2026', zielgruppe: 'alle' }
+  ],
+  // Selbstverständnis – Texte aus der Präsentationsvorlage des Projekts bzw. Vorgabe Projektteam
+  leitbild: {
+    zeile1: 'Wir machen Gastgeber', zeile2: 'wirtschaftlich stärker.',
+    saeulen: [
+      { icon: 'politik', titel: 'Politik', text: 'Gute politische Rahmenbedingungen für das Gastgewerbe' },
+      { icon: 'gemeinschaft', titel: 'Gemeinschaft', text: 'Gemeinsam besser: Austausch und Rückhalt unter Gastgebern' },
+      { icon: 'service', titel: 'Service & Vorteile', text: 'Serviceleistungen, die im Alltag wirken' }
+    ],
+    wert: { titel: 'Sicherheit und Vertrauen', text: 'Wir handeln unabhängig und im Interesse unserer Mitglieder.' },
+    partner: 'kompetent, branchennah und mit Vertrauen an Ihrer Seite.',
+    mitglieder: { text: 'Mehr als 11.000 Mitglieder in Baden-Württemberg vertrauen uns.', quelle: 'Broschüre 12/2024: „über 12.000 Mitglieder“', stand: 'Broschüre 12/2024', zielgruppe: 'alle' },
+    quelle: 'Präsentationsvorlage DEHOGA BW (Projekt) / Vorgabe Projektteam', stand: '17.10.2026', zielgruppe: 'alle'
+  },
+  mitgliedWerden: { url: 'https://www.dehogabw.de/mitmachen/mitglied-im-dehoga-werden', quelle: 'dehogabw.de', stand: '17.10.2026', zielgruppe: 'alle' }
+};
+</script>
+<style>
+:root{--blau:#004088;--text:#181716;--grau:#5f6368;--linie:#d9dee5;--hell:#f3f6fa;--ok:#1b6e3a;--nein:#9b1c1c}
+*{box-sizing:border-box}
+body{margin:0;background:#fff;color:var(--text);font-family:Arial,"Aptos",Helvetica,sans-serif;font-size:16px;line-height:1.5}
+header{border-bottom:1px solid var(--linie);padding:20px 16px}
+.wrap{max-width:880px;margin:0 auto;padding:0 16px}
+header .wrap{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:0}
+header img{height:48px;width:auto;display:block}
+header .label{font-size:14px;color:var(--grau)}
+h1{font-size:28px;line-height:1.2;margin:32px 0 8px;color:var(--blau)}
+.lead{margin:0 0 24px;color:var(--grau)}
+.steps{display:flex;gap:8px;margin:0 0 28px;padding:0;list-style:none}
+.steps li{flex:1;border-top:4px solid var(--linie);padding-top:8px;font-size:14px;color:var(--grau)}
+.steps li.aktiv{border-color:var(--blau);color:var(--blau);font-weight:bold}
+.steps li.fertig{border-color:var(--blau);color:var(--text)}
+section.schritt{display:none}
+section.schritt.aktiv{display:block}
+h2{font-size:20px;margin:28px 0 12px;color:var(--blau)}
+h3{font-size:16px;margin:20px 0 8px}
+fieldset{border:1px solid var(--linie);padding:16px;margin:0 0 16px}
+legend{font-weight:bold;padding:0 6px}
+.optionen{display:grid;gap:8px}
+.option{display:flex;gap:10px;align-items:flex-start;padding:12px;border:1px solid var(--linie);cursor:pointer}
+.option:has(input:checked){border-color:var(--blau);background:var(--hell)}
+.option input{margin-top:4px;accent-color:var(--blau)}
+.option small{display:block;color:var(--grau)}
+.feld{display:grid;grid-template-columns:1fr 250px;gap:12px;align-items:center;padding:8px 0;border-bottom:1px solid var(--linie)}
+.feld:last-child{border-bottom:0}
+.feld label{font-weight:normal}
+.feld small{display:block;color:var(--grau)}
+input[type=number],input[type=text],select{width:100%;padding:8px 10px;border:1px solid #9aa4b2;font:inherit;color:var(--text);background:#fff}
+input:focus,select:focus,button:focus{outline:2px solid var(--blau);outline-offset:1px}
+.nav{display:flex;justify-content:space-between;gap:12px;margin:28px 0 40px}
+button{font:inherit;padding:10px 20px;border:1px solid var(--blau);background:#fff;color:var(--blau);cursor:pointer}
+button.primaer{background:var(--blau);color:#fff}
+button.klein{padding:4px 10px;font-size:14px}
+.hinweis{background:var(--hell);border-left:4px solid var(--blau);padding:10px 14px;margin:12px 0;font-size:14px}
+table{width:100%;border-collapse:collapse;margin:8px 0 16px}
+th,td{text-align:left;padding:8px;border-bottom:1px solid var(--linie);vertical-align:top}
+th{font-size:14px;color:var(--grau);font-weight:normal}
+td.zahl,th.zahl{text-align:right;white-space:nowrap}
+tr.summe td{font-weight:bold;border-top:2px solid var(--text)}
+.kennzahlen{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 16px}
+.kz{border:1px solid var(--linie);padding:14px}
+.kz span{display:block;font-size:14px;color:var(--grau)}
+.kz strong{display:block;font-size:24px;margin-top:4px}
+.urteil{padding:16px;font-size:20px;font-weight:bold;margin:8px 0 16px;border:2px solid}
+.urteil.ja{color:var(--ok);border-color:var(--ok)}
+.urteil.nein{color:var(--nein);border-color:var(--nein)}
+.badge{display:inline-block;font-size:12px;padding:1px 6px;border:1px solid var(--grau);color:var(--grau);margin-left:6px;vertical-align:middle}
+.badge.offen{border-color:var(--nein);color:var(--nein)}
+.nm-zeile{display:grid;grid-template-columns:auto 1fr 150px auto;gap:10px;align-items:start;padding:10px 0;border-bottom:1px solid var(--linie)}
+.nm-zeile input[type=checkbox]{margin-top:6px;accent-color:var(--blau)}
+.nm-zeile .neu input{margin-bottom:6px}
+.nm-zeile small{display:block;color:var(--grau)}
+.urteil.beitrag{color:var(--blau);border-color:var(--blau)}
+.urteil small{display:block;font-size:15px;font-weight:normal;color:var(--text);margin-top:6px}
+.balken{height:12px;background:var(--linie);margin:10px 0 0}
+.balken div{height:100%;background:var(--blau)}
+.stimmen{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin:8px 0 8px}
+.stimme{border-left:4px solid var(--blau);background:var(--hell);padding:12px 14px;margin:0}
+.stimme p{margin:0 0 6px}
+.stimme .wer{font-size:13px;color:var(--grau)}
+.lobby{list-style:none;padding:0;margin:4px 0 16px}
+.lobby li{padding:8px 0;border-bottom:1px solid var(--linie)}
+.lobby .eb{font-size:13px;color:var(--grau)}
+.lobby a{color:var(--blau)}
+.cta{border:2px solid var(--blau);padding:20px;margin:24px 0}
+.cta h2{margin-top:0}
+.cta a.knopf{display:inline-block;background:var(--blau);color:#fff;text-decoration:none;padding:10px 20px;margin-top:8px}
+@media (max-width:640px){.stimmen{grid-template-columns:1fr}}
+.hero{margin:36px 0 12px}
+.hero .eyebrow{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--grau);margin:0 0 8px}
+.hero h1.slogan{color:var(--text)}
+.hero .kicker{font-size:22px;color:var(--blau);margin:0}
+.hero .ziel{font-weight:bold;margin:4px 0 16px;padding-bottom:10px;border-bottom:1px solid var(--linie)}
+.hero .slogan{font-size:40px;line-height:1.12;font-weight:bold;margin:0 0 24px}
+.hero .slogan span{display:block;color:var(--blau)}
+.saeulen{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:0 0 16px}
+.saeule{background:var(--hell);border-top:5px solid var(--blau);padding:18px}
+.saeule svg{width:36px;height:36px;color:var(--blau);display:block;margin-bottom:10px}
+.saeule h3{margin:0 0 4px;color:var(--blau)}
+.saeule p{margin:0;font-size:15px}
+.vertrauen{display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:center;border-left:4px solid var(--blau);padding:10px 14px;margin:0 0 10px}
+.vertrauen strong.zahl{font-size:30px;color:var(--blau);white-space:nowrap}
+.kicker-sek{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--grau);margin:28px 0 -20px}
+@media (max-width:640px){.saeulen{grid-template-columns:1fr}.hero .slogan{font-size:28px}}
+.rechner-titel{font-size:26px;margin:40px 0 6px;padding-top:28px;border-top:1px solid var(--linie)}
+.frage{margin:0 0 24px}
+main.ohne-hero .rechner-titel{border-top:0;padding-top:0;margin-top:32px}
+.frage h3{margin:0 0 10px;font-size:17px}
+.optionen.reihe{grid-template-columns:repeat(3,1fr)}
+.optionen.reihe .option{min-height:64px}
+@media (max-width:640px){.optionen.reihe{grid-template-columns:1fr}}
+.optionen.reihe.zwei{grid-template-columns:repeat(2,1fr)}
+.knoepfe{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.knoepfe label{position:relative}
+.knoepfe input{position:absolute;opacity:0}
+.knoepfe span{display:block;text-align:center;padding:8px 4px;border:1px solid #9aa4b2;cursor:pointer;font-size:15px}
+.knoepfe input:checked+span{background:var(--blau);color:#fff;border-color:var(--blau)}
+.knoepfe input:focus-visible+span{outline:2px solid var(--blau);outline-offset:1px}
+.feld:has(.knoepfe){grid-template-columns:1fr 420px}
+.nm-raster{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.nm-liste{list-style:none;padding:0;margin:0 0 16px;display:grid;grid-template-columns:repeat(2,1fr);gap:4px 24px}
+.nm-liste li{padding:8px 0;border-bottom:1px solid var(--linie)}
+.nm-liste span{display:block;font-size:14px;color:var(--grau)}
+footer details summary{cursor:pointer;color:var(--blau)}
+footer details ul{margin:6px 0 10px;padding-left:18px}
+@media (max-width:640px){.optionen.reihe.zwei,.nm-raster,.nm-liste{grid-template-columns:1fr}.knoepfe{grid-template-columns:repeat(2,1fr)}.feld:has(.knoepfe){grid-template-columns:1fr}}
+.hinweis.gut{border-left-color:var(--ok)}
+.gruen{color:var(--ok)}
+.tipp{background:#eaf5ee;border-left:4px solid var(--ok);padding:12px 14px;margin:0 0 16px;font-size:15px}
+.tipp strong{color:var(--ok)}
+.leer{color:var(--grau);font-style:italic}
+footer{border-top:1px solid var(--linie);padding:16px 0 32px;font-size:13px;color:var(--grau)}
+@media (max-width:640px){
+  .feld{grid-template-columns:1fr}
+  .kennzahlen{grid-template-columns:1fr}
+  .nm-zeile{grid-template-columns:auto 1fr}
+  .nm-zeile .wert,.nm-zeile .aktion{grid-column:2}
+  h1{font-size:24px}
+}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <img src="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyBpZD0iRWJlbmVfMSIgZGF0YS1uYW1lPSJFYmVuZSAxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxNjcxLjI1IDM1Ny4yNSI+CiAgPGRlZnM+CiAgICA8c3R5bGU+CiAgICAgIC5jbHMtMSB7CiAgICAgICAgZmlsbDogIzAwNDA4ODsKICAgICAgfQoKICAgICAgLmNscy0yIHsKICAgICAgICBmaWxsOiAjZmZmOwogICAgICB9CgogICAgICAuY2xzLTMgewogICAgICAgIGZpbGw6ICMxODE3MTY7CiAgICAgIH0KICAgIDwvc3R5bGU+CiAgPC9kZWZzPgogIDxnIGlkPSJkZWhvZ2Etc2lnbmV0LTI1Ij4KICAgIDxnIGlkPSJrYWNoZWwtZ2xhcyI+CiAgICAgIDxyZWN0IGNsYXNzPSJjbHMtMSIgeD0iMTgzLjA1IiB5PSIxODUuNjMiIHdpZHRoPSIxNzAuNDkiIGhlaWdodD0iMTcwLjQ5Ii8+CiAgICAgIDxwYXRoIGlkPSJpY29uLWdsYXMiIGNsYXNzPSJjbHMtMiIgZD0iTTMwMC4yNCwzMjcuNTZzLTE4LjA0LTQuMzYtMjguMTMtNy42MXYtNDAuMTdjMTQuNS0yLjI3LDI1LjI1LTE2LjI2LDI5LjM5LTI5LjM2LDYuMTctMTkuNDgtMS4yNi0zOC41OC0xLjU3LTM5LjM5bC0uNTUtMS4zOWgtNjIuNzJsLS41NCwxLjQxYy0uMzIuODMtNy43NiwyMC41Ny0xLjI4LDQwLjE4LDQuMjEsMTIuNzEsMTQuOTIsMjYuMTcsMjkuMSwyOC40M3Y0MC4yN2MtMTAuMTcsMy4yNi0yOC40LDcuNjItMjguNCw3LjYyLDAsMC0xLjUyLjIyLTEuNTIsMi4xNywwLDIuMTcsMS41MiwyLjQsMS41MiwyLjRoNjQuNzFzMS41MiwwLDEuNTItMi40YzAtMS45NC0xLjUyLTIuMTctMS41Mi0yLjE3WiIvPgogICAgPC9nPgogICAgPGcgaWQ9ImthY2hlbC1iZXR0Ij4KICAgICAgPHJlY3QgY2xhc3M9ImNscy0xIiB5PSIxODUuNjMiIHdpZHRoPSIxNzAuNDkiIGhlaWdodD0iMTcwLjQ5Ii8+CiAgICAgIDxwYXRoIGlkPSJpY29uLWJldHQiIGNsYXNzPSJjbHMtMiIgZD0iTTE0MS4xOCwyNDAuMzloLTguODZjLS40LDAtLjczLjMzLS43My43M3YxOS4yOGMtNi4wNS0xLjYyLTM2LjktOS4wOS01Ny40OCwxLjYyLDAsMC0xNi4yNS0xOC41LTM0LjYxLS45NHYtMjkuMmMwLS40LS4zMy0uNzMtLjczLS43M2gtOS40N2MtLjQsMC0uNzMuMzMtLjczLjczdjc2Ljc0YzAsLjQuMzMuNzMuNzMuNzNoOS40N2MuNCwwLC43My0uMzMuNzMtLjczdi0xOC4zNWMwLS40LjMzLS43My43My0uNzNoOTAuNjNjLjQsMCwuNzMuMzMuNzMuNzN2MTguMmMwLC40LjMzLjczLjczLjczaDguODZjLjQsMCwuNzMtLjMzLjczLS43M3YtNjcuMzVjMC0uNC0uMzMtLjczLS43My0uNzNaIi8+CiAgICA8L2c+CiAgICA8ZyBpZD0ia2FjaGVsLWtvY2htdWV0emUiPgogICAgICA8cmVjdCBjbGFzcz0iY2xzLTEiIHg9Ii4xNiIgeT0iMi44NyIgd2lkdGg9IjE3MC40OSIgaGVpZ2h0PSIxNzAuNDkiLz4KICAgICAgPHBhdGggaWQ9Imljb24ta29jaG11ZXR6ZSIgY2xhc3M9ImNscy0yIiBkPSJNMTE0Ljc2LDE0Ny4zM2gtNTkuNTV2LTYzLjk5Yy0xMS41NC05LjYyLTE4LjctMjQuODUtMTQuNjctMzcuNywyLjE0LTYuOCw2Ljk2LTEyLjA2LDEyLjk4LTE0LjgsNy4zOS0zLjM2LDE4LjY5LTMuNjIsMjcuMDUsMS42LDUuNSwzLjQ0LDEwLjU4LDEyLjcyLDEwLjE5LDEyLjQzLDkuNjItNy41NCwxOS40NC02LjgzLDI2LjA1LTMuMzIsNC41MywyLjQxLDguOTMsNi40NiwxMC4zLDExLjcyLDIuNzIsMTAuMzktMi45LDIyLjM1LTEyLjM1LDMwLjkzdjYzLjEzWiIvPgogICAgPC9nPgogICAgPGcgaWQ9ImthY2hlbC1iZXN0ZWNrIj4KICAgICAgPHJlY3QgY2xhc3M9ImNscy0xIiB4PSIxODIuOTIiIHk9IjIuODgiIHdpZHRoPSIxNzAuNDkiIGhlaWdodD0iMTcwLjQ5Ii8+CiAgICAgIDxnIGlkPSJpY29uLWJlc3RlY2siPgogICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTI5OC42MSwyMi45MWMtNC44OS0uNzYtMTEuNzEsMTAuMDEtMTMuNjgsMTMuMzUtMy40NSw1Ljg4LTUuMSwxMi4yNS01Ljg3LDE1LjI1LTIuMzcsOS4yNS0xLjgxLDMzLjU5LTEuNzgsMzQuNTgsMCwyLjM5LDIuOTYsNC4xLDcuNzgsNC43MXY1OC44OWMwLDIuNjQsMi42Myw0Ljc5LDUuODYsNC43OXM1Ljg5LTIuMTUsNS44OS00Ljc5di01OS4xM2MwLS4xOS0uMDQtLjMyLS4wNy0uNDcsMi43NC0uODYsNC4zNi0yLjI0LDQuMzYtMy45OVYyNS44NmMuMDYtMi4yOC0xLjcyLTIuODMtMi40OC0yLjk1WiIvPgogICAgICAgIDxwYXRoIGNsYXNzPSJjbHMtMiIgZD0iTTI2NC45OSw3MGwtMi44Ny00NC41Ny00LjQuMDUuNTIsMzQuMDdjMCwuOTUtLjgyLDEuNDUtMi4xNywxLjQ1LTEuMjIsMC0yLjEyLS41Mi0yLjEyLTEuNDVWMjUuNDZoLTQuM3YzNC4xYzAsLjk1LS43NywxLjQ1LTEuOSwxLjQ1LTEuMzUsMC0xLjk1LS41LTEuOTUtMS40NVYyNS40NmgtNC4zNHMuMDMsMzQuMS4wMywzNC4xYzAsLjk0LS45MSwxLjQ1LTIuMTUsMS40NS0xLjM1LDAtMi4yMy0uNDktMi4yMy0xLjQ4bC40OS0zNC4wNC00LjM1LS4wNS0yLjg0LDQ0LjY3YzAsMy44Nyw1LDguMDEsMTMuMzIsOS4wMmwtMS45Nyw3MC42YzAsMi42MiwyLjYzLDQuNzYsNS44Niw0Ljc2czUuODktMi4xNCw1Ljg5LTQuNzZsLTEuOTctNzAuNjFjOC40LTEsMTMuNDQtNS4xNSwxMy40NC05LjEyWiIvPgogICAgICA8L2c+CiAgICA8L2c+CiAgPC9nPgogIDxnIGlkPSJERUhPR0EiPgogICAgPHBhdGggY2xhc3M9ImNscy0xIiBkPSJNNDIxLjczLDQuMWg2OC44NWMzMS4wOSwwLDY3LjA5LDUuNzIsOTEuMDcsMzUuNDgsMTcuNzcsMjAuMjQsMjUuOTksNDYuNTUsMjUuOTksNzcuMjgsMCw2Ni45LTM3LjI3LDExMy4zNC0xMTUuMTMsMTEzLjM0aC03MC43N1Y0LjFaTTQ1Mi44NCwyMDIuNzhoNDEuMThjNTUuMzcsMCw4Mi40OS0zNC44Myw4Mi40OS04NS4xNSwwLTIzLjg3LTYuNDMtNDUuNi0yMC4wNS02MS40NC0xMi45NC0xNC40My0zMi40NC0yNC42My02Mi4zMS0yNC42M2gtNDEuMzF2MTcxLjIzWiIvPgogICAgPHBvbHlnb24gY2xhc3M9ImNscy0xIiBwb2ludHM9IjYzMS41NiA0LjExIDc1Ny40NiA0LjExIDc1Ny40NiAzMS41NCA2NjIuNjggMzEuNTQgNjYyLjY4IDExOS42NyA3NTYuNDggMTE5LjY3IDc1Ni40OCAxNDQuOTggNjYyLjY4IDE0NC45OCA2NjIuNjggMjAyLjc5IDc1Ny40NiAyMDIuNzkgNzU3LjQ2IDIzMC4yMSA2MzEuNTYgMjMwLjIxIDYzMS41NiA0LjExIi8+CiAgICA8cG9seWdvbiBjbGFzcz0iY2xzLTEiIHBvaW50cz0iNzg2LjA1IDIzMC4yMSA3ODYuMDUgNC4xMSA4MTcuMTYgNC4xMSA4MTcuMTYgMTE5LjY3IDkxOS45OCAxMTkuNjcgOTE5Ljk4IDQuMTEgOTUxLjA2IDQuMTEgOTUxLjA2IDIzMC4yMSA5MTkuOTggMjMwLjIxIDkxOS45OCAxNDUgODE3LjE2IDE0NC45OCA4MTcuMTYgMjMwLjIxIDc4Ni4wNSAyMzAuMjEiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTk3NC44NSwxMTguMDhDOTc0Ljg1LDQ3LjcyLDEwMjkuMzQsMCwxMDkzLjA3LDAsMTE2MC4wNCwwLDEyMTEuMzksNTEuNTcsMTIxMS4zOSwxMTcuMTZzLTUxLjE5LDExNy4xNi0xMTguNDksMTE3LjE2LTExOC4wNi01Mi41NS0xMTguMDYtMTE1Ljk0di0uM1pNMTAwNS45NiwxMTYuODZjMCw0OS43OCwzNy4xMSw4OS43NCw4Ny41MSw4OS43NHM4Ni44MS00Mi4xOCw4Ni44MS04OS42My0zNS40Ni04OS44NC04Ny4wOC04OS44NC04Ny4yNCw0MC43Ny04Ny4yNCw4OS40NHYuM1oiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTE0MTYuMDEsNjUuODRjLTYuNC05LjAzLTE0LjA4LTE2Ljc0LTIyLjgxLTIyLjg0LTEzLjg0LTkuNzctMzAuNzMtMTUuNTQtNDkuOTctMTUuNTQtNDUuNzEsMC04Ny4yNCwzNC44LTg3LjI0LDg5LjI3czQxLjY3LDkwLjMxLDg3LjM4LDkwLjMxYzIyLjI0LDAsNDEuNTMtNy4zNSw1Ni4wNy0xOC42NCwxNC43My0xMS4zNCwyNC44Mi0yNi44NiwyOC4zNy00My40aC0xMDQuNDR2LTI1LjMxaDE0MC41N2MtLjE0LDEzLjY0LTIuODIsMzEuODItMTAuMDYsNDcuNDctMjAuMTgsNDMuNjItNjYuMjIsNjcuMy0xMTAuMzgsNjcuMy02Ni40NiwwLTExOC42My01MS4xNi0xMTguNjMtMTE3LjczUzEyNzguMjksMCwxMzQzLjkxLDBjNDcuMjMsMCw5MC41MiwyNy42NywxMDcuNCw2NS44NGgtMzUuMjlaIi8+CiAgICA8cGF0aCBjbGFzcz0iY2xzLTEiIGQ9Ik0xNDg5LjkzLDIzMC4yMmgtMzMuNjRMMTU0OS44OCw0LjEyaDI5LjAzbDkyLjM0LDIyNi4xaC0zMy45MWwtMzQuMTgtODUuMjNoLTc4LjY0bC0zNC41OSw4NS4yM1pNMTU2My4xNSwzOS44NGwtMzAuMzMsNzkuODNoNjEuMzlsLTMxLjA2LTc5LjgzWiIvPgogIDwvZz4KICA8Zz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTQyNC44LDM1NS45OHYtNjcuMDRoMTguMjFjMTIuMzIsMCwyMC4xMSw3LjcsMjAuMTEsMTguMjEsMCw1LjcxLTEuNjMsOS4zMy01Ljk4LDEzLjA1LDYuNDMsMy42Myw5Ljk3LDguNzksOS45NywxNi4zMSwwLDExLjk2LTguOTcsMTkuNDgtMjEuMiwxOS40OGgtMjEuMTFaTTQ0Mi42NCwzMTYuODRjNi42MSwwLDEwLjY5LTMuMTcsMTAuNjktOS40MnMtNC4wOC05LjUyLTExLjIzLTkuNTJoLTcuNTJ2MTguOTRoOC4wNlpNNDQ1LjA5LDM0Ny4wMWM2Ljk3LDAsMTIuMjMtMy45OSwxMi4yMy0xMC41MSwwLTQuNTMtMy4wOC0xMC42OS0xMS45Ni0xMC42OWgtMTAuNzh2MjEuMmgxMC41MVoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTUzOC4xNywzNTUuOThsLTcuNDMtMTkuNzVoLTI0LjFsLTcuNDMsMTkuNzVoLTEwLjMzbDI1LjQ2LTY3LjA0aDguNzlsMjUuNDYsNjcuMDRoLTEwLjQyWk01MTguODcsMzAxLjYyaC0uMThsLTguNjEsMjUuNjRoMTcuM2wtOC41Mi0yNS42NFoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTU3NC4xOCwzNTUuOTh2LTY3LjA0aDIzLjI4YzIwLjI5LDAsMzIuNzEsMTYuMDQsMzIuNzEsMzMuNTIsMCwyMC40Ny0xMi45NiwzMy41Mi0zNC4xNiwzMy41MmgtMjEuODNaTTU5NS42NSwzNDcuMDFjMTUuNDksMCwyNC43My05LjA2LDI0LjczLTI0LjM3cy0xMC42LTI0LjczLTI0LjI4LTI0LjczaC0xMi4xNHY0OS4xMWgxMS42OVoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTY1OS42MSwzNTUuOTh2LTY3LjA0aDM2LjE1djguOTdoLTI2LjM2djE5Ljc1aDI2LjM2djguOTdoLTI2LjM2djIwLjM5aDI2LjM2djguOTdoLTM2LjE1WiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNNzY5LjUyLDM1NS45OGwtMzMuMTYtNTEuODJoLS4xOHY1MS44MmgtOS43OHYtNjcuMDRoMTAuNjlsMzIuNjIsNTEuMDFoLjE4di01MS4wMWg5Ljc4djY3LjA0aC0xMC4xNVoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTgwOC44NCwzMzQuNTF2LTkuNDJoMjUuMzd2OS40MmgtMjUuMzdaIi8+CiAgICA8cGF0aCBjbGFzcz0iY2xzLTMiIGQ9Ik05MDYuNiwzNTUuOThsLTEyLjE0LTQ2Ljg0aC0uMThsLTEyLjE0LDQ2Ljg0aC04LjYxbC0xOC43Ni02Ny4wNGgxMC4xNWwxMi43Nyw1MC40NmguMThsMTIuOTYtNTAuNDZoNy4xNmwxMi43Nyw1MC4xaC4xOGwxMy4wNS01MC4xaDkuOTdsLTE4Ljc2LDY3LjA0aC04LjYxWiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNOTk1LjM1LDI4OC45M2g5Ljc4djQ1Ljg0YzAsMTQuMDQtOS44OCwyMi40Ny0yMi40NywyMi40N3MtMjIuNDctOC41Mi0yMi40Ny0yMi40N3YtNDUuODRoOS43OHY0NS4xMmMwLDguMzMsNC43MSwxNC4yMiwxMi42OSwxNC4yMnMxMi42OC01Ljk4LDEyLjY4LTE0LjIydi00NS4xMlpNOTcwLjk3LDI4My4zMnYtMTEuMDVoOS40MnYxMS4wNWgtOS40MlpNOTg1LjAyLDI4My4zMnYtMTEuMDVoOS40MnYxMS4wNWgtOS40MloiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTEwNjkuMywzNTUuOThsLTIyLjExLTMxLjA4aC0uMTh2MzEuMDhoLTkuNzh2LTY3LjA0aDIxLjQ3YzE2LjEzLDAsMjMuMjgsOC41MiwyMy4yOCwyMi4yOSwwLDEyLjc3LTkuNzgsMTkuNDgtMTkuMjEsMTkuNzVsMTguNzYsMjUuMDFoLTEyLjIzWk0xMDU0LjE3LDMyMy41NGMxMS40MSwwLDE4LjAzLTQuNDQsMTguMDMtMTMuMTQsMC03LjctNi4xNi0xMi41LTE0Ljg2LTEyLjVoLTEwLjMzdjI1LjY0aDcuMTZaIi8+CiAgICA8cGF0aCBjbGFzcz0iY2xzLTMiIGQ9Ik0xMTE3LjU4LDM1NS45OHYtNTguMDdoLTEyLjg2di04Ljk3aDM1LjUxdjguOTdoLTEyLjg2djU4LjA3aC05Ljc5WiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNMTE3NS43OSwzNTUuOTh2LTU4LjA3aC0xMi44NnYtOC45N2gzNS41MXY4Ljk3aC0xMi44NnY1OC4wN2gtOS43OVoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTEyMjMuNzUsMzU1Ljk4di02Ny4wNGgzNi4xNXY4Ljk3aC0yNi4zN3YxOS43NWgyNi4zN3Y4Ljk3aC0yNi4zN3YyMC4zOWgyNi4zN3Y4Ljk3aC0zNi4xNVoiLz4KICAgIDxwYXRoIGNsYXNzPSJjbHMtMyIgZD0iTTEzNTEuODgsMzU1Ljk4di01Ni42M2gtLjI3bC0yMi41Niw1Ni42M2gtNS44OWwtMjIuNjUtNTYuNjNoLS4xOHY1Ni42M2gtOS43OHYtNjcuMDRoMTUuNGwyMC4xMiw1MS4zNywyMC4yLTUxLjM3aDE1LjR2NjcuMDRoLTkuNzhaIi8+CiAgICA8cGF0aCBjbGFzcz0iY2xzLTMiIGQ9Ik0xMzk0LjQyLDM1NS45OHYtNjcuMDRoMTguMjFjMTIuMzIsMCwyMC4xMSw3LjcsMjAuMTEsMTguMjEsMCw1LjcxLTEuNjMsOS4zMy01Ljk4LDEzLjA1LDYuNDMsMy42Myw5Ljk3LDguNzksOS45NywxNi4zMSwwLDExLjk2LTguOTcsMTkuNDgtMjEuMiwxOS40OGgtMjEuMTFaTTE0MTIuMjcsMzE2Ljg0YzYuNjIsMCwxMC42OS0zLjE3LDEwLjY5LTkuNDJzLTQuMDgtOS41Mi0xMS4yNC05LjUyaC03LjUydjE4Ljk0aDguMDZaTTE0MTQuNzIsMzQ3LjAxYzYuOTgsMCwxMi4yMy0zLjk5LDEyLjIzLTEwLjUxLDAtNC41My0zLjA4LTEwLjY5LTExLjk2LTEwLjY5aC0xMC43OHYyMS4yaDEwLjUxWiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNMTQ2NS42MywzNTUuOTh2LTY3LjA0aDM2LjE1djguOTdoLTI2LjM3djE5Ljc1aDI2LjM3djguOTdoLTI2LjM3djIwLjM5aDI2LjM3djguOTdoLTM2LjE1WiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNMTU2NC4wNCwzNTUuOThsLTIyLjExLTMxLjA4aC0uMTh2MzEuMDhoLTkuNzh2LTY3LjA0aDIxLjQ3YzE2LjEzLDAsMjMuMjgsOC41MiwyMy4yOCwyMi4yOSwwLDEyLjc3LTkuNzgsMTkuNDgtMTkuMiwxOS43NWwxOC43NSwyNS4wMWgtMTIuMjNaTTE1NDguOSwzMjMuNTRjMTEuNDIsMCwxOC4wMy00LjQ0LDE4LjAzLTEzLjE0LDAtNy43LTYuMTYtMTIuNS0xNC44Ni0xMi41aC0xMC4zM3YyNS42NGg3LjE1WiIvPgogICAgPHBhdGggY2xhc3M9ImNscy0zIiBkPSJNMTYyOC4yNywzMzEuNjF2LTguOTdoNDIuNGMtLjYzLDIyLjI5LTE3LjQ4LDM0LjYxLTM1LjMzLDM0LjYxcy0zMy42MS0xNS43Ny0zMy42MS0zMy44OWMwLTIxLjc0LDE2LjY3LTM1LjY5LDMzLjYxLTM1LjY5LDEyLjg3LDAsMjMuOTIsNi4wNywzMC43MSwxOC4xMmgtMTEuNDFjLTUuNzEtNi41Mi0xMS40MS05LjE1LTE4Ljg0LTkuMTUtMTMuMDUsMC0yNC4yOSwxMi4zMi0yNC4yOSwyNS41NSwwLDE0LjEzLDExLjE1LDI2LjA5LDI0LjY1LDI2LjA5LDEwLjYsMCwxOS4xMi01Ljg5LDIzLjM4LTE2LjY3aC0zMS4yNloiLz4KICA8L2c+Cjwvc3ZnPgo=" alt="DEHOGA Baden-Württemberg">
+  <span class="label">Vorteilsrechner · Prototyp</span>
+</div></header>
+
+<main class="wrap">
+  <div class="hero" id="hero"></div>
+  <h2 class="rechner-titel">Ihr Vorteilsrechner</h2>
+  <p class="lead">In drei Schritten zu Ihrem Ergebnis: Ersparnis, Beitrag und was Sie darüber hinaus bekommen. Alle Beträge netto.</p>
+
+  <ol class="steps" id="steps">
+    <li data-s="1">1 · Betrieb und Leistungen</li>
+    <li data-s="2">2 · Betriebsdaten</li>
+    <li data-s="3">3 · Ergebnis</li>
+  </ol>
+
+  <!-- SCHRITT 1 -->
+  <section class="schritt" data-s="1">
+    <div class="frage">
+      <h3>Welche Betriebsart haben Sie?</h3>
+      <div class="optionen reihe">
+        <label class="option"><input type="radio" name="art" value="gastro" checked><span>Gastronomie</span></label>
+        <label class="option"><input type="radio" name="art" value="hotel"><span>Hotel</span></label>
+        <label class="option"><input type="radio" name="art" value="hotelgastro"><span>Hotel mit Gastronomie</span></label>
+      </div>
+    </div>
+    <div class="frage">
+      <h3>Was möchten Sie nutzen oder absichern?</h3>
+      <div class="optionen reihe">
+        <label class="option"><input type="checkbox" id="l-recht" checked><span>Rechtsberatung und Arbeitsgericht<small>Unsere Juristen statt eigener Anwalt</small></span></label>
+        <label class="option"><input type="checkbox" id="l-gema" checked><span>GEMA-Nachlass<small>20 % auf Urheberrechtsgebühren</small></span></label>
+        <label class="option"><input type="checkbox" id="l-weiter" checked><span>Fort- und Weiterbildung<small>Mitgliederpreise der DEHOGA Akademie – <strong class="gruen">einzelne Seminare sogar kostenlos</strong></small></span></label>
+      </div>
+    </div>
+    <div class="nav"><span></span><button class="primaer" data-go="2">Weiter</button></div>
+  </section>
+
+  <!-- SCHRITT 2 -->
+  <section class="schritt" data-s="2">
+    <h2>Betrieb</h2>
+    <fieldset>
+      <div class="feld"><label for="f-ma">Angestellte Mitarbeitende<small>Nach Köpfen</small></label><input type="number" id="f-ma" min="0" step="1" value="15"></div>
+      <div class="feld" data-zeige="hotel"><label for="f-zimmer">Anzahl Gästezimmer</label><input type="number" id="f-zimmer" min="0" step="1" value="30"></div>
+      <div class="feld" data-zeige="hotel"><label for="f-klass">Hotelsterne (DEHOGA-Klassifizierung)<small>Erneuerung alle 3 Jahre</small></label><select id="f-klass"><option value="nein">nein</option><option value="ja">ja oder geplant</option></select></div>
+      <div class="feld" data-zeige="gastro"><label for="f-sds">„Schmeck den Süden“-Gastronom<small>Regionale Küche, jährliche Zertifizierung</small></label><select id="f-sds"><option value="nein">nein</option><option value="ja">ja oder geplant</option></select></div>
+    </fieldset>
+
+    <div data-leistung="gema" data-zeige="gastro">
+      <h2>GEMA Gastronomie</h2>
+      <fieldset>
+        <div class="feld"><span>Beschallte Fläche</span>
+          <div class="knoepfe" role="radiogroup" aria-label="Beschallte Fläche">
+            <label><input type="radio" name="flaeche" value="100"><span>bis 100 m²</span></label>
+            <label><input type="radio" name="flaeche" value="200" checked><span>bis 200 m²</span></label>
+            <label><input type="radio" name="flaeche" value="300"><span>bis 300 m²</span></label>
+            <label><input type="radio" name="flaeche" value="301"><span>über 300 m²</span></label>
+          </div></div>
+        <div class="feld"><label for="f-quelle">Musik</label>
+          <select id="f-quelle"><option value="Tonträger">Playlist, Streaming, CD</option><option value="Hörfunk">Radio</option><option value="beides">Radio und Streaming</option><option value="keine">keine Musik</option></select></div>
+        <div class="feld"><label for="f-tv">Anzahl Fernseher</label><input type="number" id="f-tv" min="0" step="1" value="0"></div>
+        <div class="feld"><label for="f-gb">Großbildschirm über 65 Zoll</label><select id="f-gb"><option value="nein">nein</option><option value="ja">ja</option></select></div>
+      </fieldset>
+    </div>
+
+    <div data-leistung="weiter">
+      <h2>Fort- und Weiterbildung</h2>
+      <fieldset>
+        <div class="feld"><label for="f-seminar">Seminartage pro Jahr<small>Alle Teilnehmenden zusammen, z. B. 2 Personen × 1 Tag = 2</small></label><input type="number" id="f-seminar" min="0" step="1" value="2"></div>
+      </fieldset>
+      <p class="hinweis gut" id="akad-frei"></p>
+    </div>
+
+    <div data-leistung="recht">
+      <h2>Rechtsberatung und Arbeitsgericht</h2>
+      <fieldset>
+        <div class="feld"><label for="f-beratung">Rechtsberatung pro Jahr in Stunden<small>Z. B. Arbeitsverträge, Abmahnungen, Pachtverträge</small></label><input type="number" id="f-beratung" min="0" step="1" value="2"></div>
+        <div class="feld"><label for="f-gehalt">Durchschnittliches Bruttomonatsgehalt in €</label><input type="number" id="f-gehalt" min="0" step="50" value="3500"></div>
+        <div class="feld"><label for="f-verf">Erwartete Arbeitsgerichtsverfahren pro Jahr<small>Ihre Einschätzung, z. B. 0,5 = eines alle zwei Jahre</small></label><input type="number" id="f-verf" min="0" step="0.1" value="1"></div>
+      </fieldset>
+    </div>
+
+    <div>
+      <h2>Was ist Ihnen außerdem wichtig? <span class="badge">optional</span></h2>
+      <p class="hinweis">Nicht alles lässt sich in Euro messen. Kreuzen Sie an, was für Sie zählt.</p>
+      <div id="nmliste" class="nm-raster"></div>
+    </div>
+
+    <div class="nav"><button data-go="1">Zurück</button><button class="primaer" data-go="3">Ergebnis anzeigen</button></div>
+  </section>
+
+  <!-- SCHRITT 3 -->
+  <section class="schritt" data-s="3">
+    <div id="ergebnis"></div>
+    <div class="nav"><button data-go="2">Angaben ändern</button><button data-go="1">Neu beginnen</button></div>
+  </section>
+</main>
+
+<footer><div class="wrap" id="quellen"></div></footer>
+
+<script>
+/* ================= Rechenlogik (rein, ohne DOM) ================= */
+const runde = x => Math.round(x * 100) / 100;
+
+function beitragJahr(ma, zimmer) {
+  const st = DATEN.beitrag.staffel.find(s => ma >= s.ab && (s.bis === null || ma <= s.bis)) || DATEN.beitrag.staffel[0];
+  const monat = st.monat.wert + DATEN.beitrag.medienumlageMonat.wert + DATEN.beitrag.zimmerumlageMonat.wert * zimmer;
+  return { stufe: st, monat: runde(monat), jahr: runde(monat * 12), zimmerJahr: runde(DATEN.beitrag.zimmerumlageMonat.wert * zimmer * 12) };
+}
+
+function gemaGastro(flaeche, quelle, tv, gb) {
+  const t = DATEN.gema.tarif, max = DATEN.gema.maxFlaeche.wert;
+  const beides = quelle === 'beides';
+  if (beides) quelle = DATEN.gema.kombiRechnetMit.wert;   // kein Kombinationstarif veröffentlicht
+  const ueber = flaeche > max;
+  const stufe = flaeche <= 100 ? 100 : flaeche <= 200 ? 200 : flaeche <= 300 ? 300 : null;
+  let musik = 0, tvK = 0, gbK = 0;
+  if (!ueber && quelle !== 'keine' && flaeche > 0) musik = t[quelle + '|' + stufe].wert;
+  if (tv > 0) tvK = tv * t['TV|' + quelle].wert;
+  if (gb && !ueber && flaeche > 0) gbK = t['GB|' + quelle + '|' + stufe].wert;
+  const kosten = runde(musik + tvK + gbK);
+  return { ueber, stufe, musik, tvK, gbK, kosten, beides, ersparnis: runde(kosten * DATEN.gema.nachlass.wert) };
+}
+
+function gemaHotel(zimmerTv) {
+  const kosten = runde(zimmerTv * DATEN.gema.hotelzimmerWeiterleitung.wert);
+  const jeZimmer = runde(DATEN.gema.hotelzimmerWeiterleitung.wert * DATEN.gema.nachlass.wert);
+  return { kosten, ersparnis: runde(kosten * DATEN.gema.nachlass.wert), jeZimmer };
+}
+
+function rvg(v) {
+  const a = DATEN.arbeitsrecht;
+  let g = a.rvgGrund.wert;
+  for (const s of a.rvgStaffel) {
+    const [lo, hi, step, inc] = s.wert;
+    if (v > lo) g += Math.ceil((Math.min(v, hi) - lo) / step) * inc;
+  }
+  return Math.max(15, runde(g));
+}
+
+function gkg(v) {
+  const a = DATEN.arbeitsrecht;
+  let g = a.gkgGrund.wert;
+  for (const s of a.gkgStaffel) {
+    const [lo, hi, step, inc] = s.wert;
+    if (v > lo) g += Math.ceil((Math.min(v, hi) - lo) / step) * inc;
+  }
+  return Math.max(15, runde(g));
+}
+
+function anwaltVergleichNetto(gehalt) {
+  const a = DATEN.arbeitsrecht;
+  const streitwert = gehalt * a.streitwertMonate.wert;
+  const g1 = rvg(streitwert);
+  const gebuehren = runde(a.satzVerfahren.wert * g1) + runde(a.satzTermin.wert * g1) + runde(a.satzEinigung.wert * g1);
+  const pauschale = Math.min(runde(gebuehren * a.pauschaleSatz.wert), a.pauschaleMax.wert);
+  const gerichtUrteil = runde(a.satzGerichtUrteil.wert * gkg(streitwert));
+  return { streitwert, g1, gebuehren: runde(gebuehren), pauschale, netto: runde(gebuehren + pauschale), gerichtUrteil };
+}
+
+function berechne(e) {
+  const istHotel = e.art !== 'gastro', istGastro = e.art !== 'hotel';
+  const zimmer = istHotel ? e.zimmer : 0;
+  const b = beitragJahr(e.ma, zimmer);
+  const posten = [];
+  let gg = null, gh = null, ar = null, partnerSumme = 0;
+  if (e.gema && istGastro) { gg = gemaGastro(e.flaeche, e.quelle, e.tv, e.gb); posten.push({ name: 'GEMA-Nachlass Gastronomie (20 %)', wert: gg.ersparnis }); }
+  if (e.gema && istHotel)  { gh = gemaHotel(e.zimmerTv); posten.push({ name: 'GEMA-Nachlass Hotelzimmer (20 %)', wert: gh.ersparnis }); }
+  if (e.recht && e.beratungStunden > 0) posten.push({ name: 'Rechtsberatung, z. B. Arbeitsverträge', wert: runde(e.beratungStunden * DATEN.rechtsberatung.stundensatz.wert) });
+  if (e.recht) { ar = anwaltVergleichNetto(e.gehalt); posten.push({ name: 'Rechtsvertretung Arbeitsgericht', wert: runde(ar.netto * e.verfahren) }); }
+  if (e.weiterbildung) posten.push({ name: 'Fort- und Weiterbildung (DEHOGA Akademie)', wert: runde(e.seminartage * DATEN.weiterbildung.ersparnisJeSeminartag.wert) });
+  if (istHotel && e.klass) {
+    const k = DATEN.klassifizierung;
+    const diff = (k.grundNicht.wert - k.grundMitglied.wert) + zimmer * (k.zimmerNicht.wert - k.zimmerMitglied.wert);
+    posten.push({ name: 'Hotelklassifizierung (Sterne)', wert: runde(diff / k.gueltigJahre.wert) });
+  }
+  if (istGastro && e.sds) posten.push({ name: '„Schmeck den Süden“-Gastronom', wert: runde(DATEN.schmeckDenSueden.jahrNicht.wert - DATEN.schmeckDenSueden.jahrMitglied.wert) });
+  if (e.partner) {
+    for (const p of e.partnerAusgaben) partnerSumme += p.ausgabe * p.ansatz;
+    partnerSumme = runde(partnerSumme);
+    posten.push({ name: 'Partnerrabatte', wert: partnerSumme });
+  }
+  const ersparnis = runde(posten.reduce((s, p) => s + p.wert, 0));
+  const netto = runde(ersparnis - b.jahr);
+  const breakEven = ar && ar.netto > 0 ? b.jahr / ar.netto : null;
+  const zimmerNetto = gh ? runde(gh.jeZimmer - DATEN.beitrag.zimmerumlageMonat.wert * 12) : null;
+  return { b, gg, gh, ar, posten, ersparnis, netto, lohnt: netto >= 0, breakEven, zimmerNetto, istHotel, istGastro };
+}
+
+/* ================= Oberfläche ================= */
+if (typeof document !== 'undefined') {
+  const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+  const eur = x => x.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+  const num = id => { const v = parseFloat(String($(id).value).replace(',', '.')); return isNaN(v) || v < 0 ? 0 : v; };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const nmAuswahl = {};   // id -> true/false
+
+  const art = () => $('input[name=art]:checked').value;
+  const passt = zg => zg === 'alle' || (zg === 'hotel' && art() !== 'gastro') || (zg === 'gastro' && art() !== 'hotel');
+
+  function sichtbarkeit() {
+    const a = art();
+    $$('[data-zeige=hotel]').forEach(el => el.style.display = a === 'gastro' ? 'none' : '');
+    $$('[data-zeige=gastro]').forEach(el => el.style.display = a === 'hotel' ? 'none' : '');
+    ['recht', 'gema', 'weiter'].forEach(l => $$('[data-leistung=' + l + ']').forEach(el => { if (!$('#l-' + l).checked) el.style.display = 'none'; }));
+    renderNm();
+  }
+
+  function renderNm() {
+    $('#nmliste').innerHTML = DATEN.nichtMonetaer.filter(n => passt(n.zielgruppe)).map(n =>
+      `<label class="option"><input type="checkbox" data-nm-an="${esc(n.id)}" ${nmAuswahl[n.id] ? 'checked' : ''}><span>${esc(n.titel)}<small>${esc(n.beschreibung)}</small></span></label>`).join('');
+  }
+  $('#nmliste').addEventListener('change', e => { const id = e.target.dataset.nmAn; if (id) nmAuswahl[id] = e.target.checked; });
+
+  function eingaben() {
+    const zimmer = Math.floor(num('#f-zimmer'));
+    return {
+      art: art(), ma: Math.floor(num('#f-ma')), zimmer, zimmerTv: zimmer,
+      gema: $('#l-gema').checked, recht: $('#l-recht').checked, partner: false,
+      flaeche: +$('input[name=flaeche]:checked').value, quelle: $('#f-quelle').value,
+      tv: Math.floor(num('#f-tv')), gb: $('#f-gb').value === 'ja',
+      gehalt: num('#f-gehalt'), verfahren: num('#f-verf'), partnerAusgaben: [],
+      beratungStunden: num('#f-beratung'),
+      weiterbildung: $('#l-weiter').checked, seminartage: Math.floor(num('#f-seminar')),
+      klass: $('#f-klass').value === 'ja', sds: $('#f-sds').value === 'ja'
+    };
+  }
+
+  function zeigeErgebnis() {
+    const e = eingaben(), r = berechne(e);
+    const fz = (x, d = 1) => x.toLocaleString('de-DE', { maximumFractionDigits: d });
+    const deckung = r.b.jahr > 0 ? Math.min(1, r.ersparnis / r.b.jahr) : 1;
+    const beitragNetto = -r.netto;
+    const zeilen = r.posten.map(p => `<tr><td>${esc(p.name)}${p.name.startsWith('Fort- und Weiterbildung') ? '<small class="gruen" style="display:block">Gut zu wissen: einzelne Seminare sogar kostenlos</small>' : ''}</td><td class="zahl">${eur(p.wert)}</td></tr>`).join('');
+    let h = `<p class="kicker-sek">Service &amp; Vorteile</p><h2>Ihr Ergebnis</h2>`;
+    if (r.lohnt) {
+      h += `<div class="urteil ja">Ihre Mitgliedschaft rechnet sich: ${eur(r.netto)} Vorteil pro Jahr
+        <small>Sie sparen mehr, als Sie an Beitrag zahlen – und bekommen die Leistungen unten zusätzlich.</small></div>`;
+    } else {
+      h += `<div class="urteil beitrag">Ihr Beitrag zur Gemeinschaft: ${eur(beitragNetto)} pro Jahr
+        <small>Das sind ${eur(beitragNetto / 12)} im Monat. Ihre messbaren Vorteile decken bereits ${fz(deckung * 100, 0)} % des Jahresbeitrags.
+        Für den Rest erhalten Sie die Leistungen unten und stärken die gemeinsame Interessenvertretung der Branche.</small>
+        <div class="balken" role="img" aria-label="Deckung ${fz(deckung * 100, 0)} Prozent"><div style="width:${(deckung * 100).toFixed(1)}%"></div></div></div>`;
+    }
+    h += `<div class="kennzahlen">
+        <div class="kz"><span>Messbare Ersparnis pro Jahr</span><strong>${eur(r.ersparnis)}</strong></div>
+        <div class="kz"><span>Jahresbeitrag DEHOGA BW</span><strong>${eur(r.b.jahr)}</strong></div>
+        <div class="kz"><span>${r.lohnt ? 'Ihr Vorteil pro Jahr' : 'Ihr Beitrag zur Gemeinschaft'}</span><strong>${eur(Math.abs(r.netto))}</strong></div>
+      </div>
+      <div class="tipp"><strong>Gut zu wissen:</strong> ${esc(DATEN.weiterbildung.kostenloseSeminare.text)} Diese sind in der Rechnung noch nicht enthalten – Ihr Vorteil kann also noch höher sein.</div>
+      <table><thead><tr><th>Position</th><th class="zahl">€ / Jahr</th></tr></thead><tbody>
+      ${zeilen || '<tr><td colspan="2" class="leer">Keine Leistung gewählt</td></tr>'}
+      <tr class="summe"><td>Messbare Ersparnis</td><td class="zahl">${eur(r.ersparnis)}</td></tr>
+      <tr><td>Jahresbeitrag (Stufe ${r.b.stufe.ab}${r.b.stufe.bis ? '–' + r.b.stufe.bis : '+'} Beschäftigte, inkl. Medienumlage${r.istHotel ? ' und Zimmerumlage ' + eur(r.b.zimmerJahr) : ''})</td><td class="zahl">−${eur(r.b.jahr)}</td></tr>
+      <tr class="summe"><td>${r.lohnt ? 'Ihr Vorteil' : 'Ihr Beitrag zur Gemeinschaft'}</td><td class="zahl">${eur(Math.abs(r.netto))}</td></tr></tbody></table>`;
+    if (r.breakEven !== null) {
+      const be = r.breakEven;
+      h += `<p>Ein einziges Arbeitsgerichtsverfahren mit eigenem Anwalt kostet Sie ${eur(r.ar.netto)} netto${r.ar.netto >= r.b.jahr ? ' – mehr als Ihr gesamter Jahresbeitrag' : ''}.
+        Der Beitrag trägt sich allein über die Rechtsvertretung ab <strong>${fz(be, 2)} Verfahren pro Jahr</strong>${be > 0 && be < 1 ? ` – also bei einem Verfahren alle ${fz(1 / be)} Jahre` : ''}.</p>`;
+    }
+    if (e.recht && e.beratungStunden > 0) h += `<p>Rechtsberatung: ${String(e.beratungStunden).replace('.', ',')} Stunden × ${eur(DATEN.rechtsberatung.stundensatz.wert)} Stundensatz eines Juristen – für Mitglieder kostenlos.</p>`;
+    if (r.ar) h += `<div class="hinweis"><strong>Wichtig zu den Gerichtskosten:</strong> Unsere Juristen ersetzen Ihren eigenen Anwalt. Gerichtskosten sind davon getrennt.
+      Endet das Verfahren mit einem Vergleich, fallen in der ersten Instanz keine Gerichtskosten an. Bei einem Urteil trägt sie die unterlegene Partei –
+      bei Ihrem Streitwert von ${eur(r.ar.streitwert)} rund ${eur(r.ar.gerichtUrteil)}. Diese Kosten sind in der Rechnung nicht als Ersparnis enthalten.</div>`;
+    if (r.gg && r.gg.beides) h += `<p>Radio und Streaming: Gerechnet ist vorsichtig nur der Radio-Tarif. Für die Kombination gilt ein eigener GEMA-Vertrag – die tatsächliche Ersparnis ist eher höher.</p>`;
+    if (r.gg && r.gg.ueber) h += `<p>Bei einer beschallten Fläche über 300 m² gilt ein individueller GEMA-Tarif. Musik und Großbild sind deshalb nicht eingerechnet.</p>`;
+    {
+      const bsp = DATEN.partner.filter(p => p.beispiel && passt(p.ansatz.zielgruppe)).map(p => p.name);
+      const anz = DATEN.partner.filter(p => passt(p.ansatz.zielgruppe)).length;
+      h += `<p>Dazu kommen Sonderkonditionen bei ${anz} Partnern, zum Beispiel ${esc(bsp.join(', '))}. Diese sind hier nicht eingerechnet.</p>`;
+    }
+    if (r.zimmerNetto !== null) h += `<p>Je Hotelzimmer: GEMA-Ersparnis ${eur(r.gh.jeZimmer)} minus Zimmerumlage ${eur(DATEN.beitrag.zimmerumlageMonat.wert * 12)} = <strong>${eur(r.zimmerNetto)}</strong> pro Zimmer und Jahr.</p>`;
+
+    // Nicht-monetäre Vorteile – immer
+    {
+      const alle = DATEN.nichtMonetaer.filter(n => passt(n.zielgruppe));
+      const gew = alle.filter(n => nmAuswahl[n.id]), rest = alle.filter(n => !nmAuswahl[n.id]);
+      const liste = x => `<ul class="nm-liste">${x.map(n => `<li><strong>${esc(n.titel)}</strong><span>${esc(n.beschreibung)}</span></li>`).join('')}</ul>`;
+      h += `<p class="kicker-sek">Gemeinschaft</p><h2>${r.lohnt ? 'Das bekommen Sie zusätzlich' : 'Dafür steht Ihr Beitrag'}</h2>`;
+      if (gew.length) h += `<h3>Für Sie besonders wichtig</h3>${liste(gew)}`;
+      if (rest.length) h += `${gew.length ? '<h3>Weitere Vorteile der Mitgliedschaft</h3>' : ''}${liste(rest)}`;
+    }
+
+    // Stimmen
+    const st = DATEN.stimmen.filter(s => passt(s.zielgruppe));
+    if (st.length) {
+      h += `<h2>Das sagen Mitglieder aus Baden-Württemberg</h2><div class="stimmen">${st.map(s => `<figure class="stimme"><p>${s.art === 'zitat' ? '„' + esc(s.text) + '“' : esc(s.text) + ' <span class="badge">sinngemäß</span>'}</p>
+        <figcaption class="wer"><strong>${esc(s.person)}</strong>, ${esc(s.betrieb)} · ${esc(s.thema)}<br>Quelle: ${esc(s.quelle)} (${esc(s.stand)})</figcaption></figure>`).join('')}</div>`;
+    }
+
+    // Lobbyarbeit
+    const lb = DATEN.lobby.filter(l => passt(l.zielgruppe));
+    const gruppe = (g, titel) => { const x = lb.filter(l => l.gruppe === g); return x.length ? `<h3>${titel}</h3><ul class="lobby">${x.map(l =>
+      `<li><strong>${esc(l.thema)}</strong> <span class="eb">· ${esc(l.ebene)}</span><br>${esc(l.ergebnis)} <a href="${esc(l.url)}" target="_blank" rel="noopener">Quelle</a></li>`).join('')}</ul>` : ''; };
+    h += `<p class="kicker-sek">Politik</p><h2>Ihr Beitrag stärkt die Stimme der Branche</h2>
+      <p>Der DEHOGA setzt sich gegenüber Politik und Verwaltung für Gastronomie und Hotellerie ein. Einige Themen der letzten fünf Jahre – der DEHOGA hat sich dafür eingesetzt, beschlossen haben Bund und Land:</p>
+      ${gruppe('erreicht', 'Erreicht')}${gruppe('offen', 'Daran arbeiten wir weiter')}
+      <p class="hinweis">Ihr Mitgliedsbeitrag trägt dazu bei, diese gemeinsame Vertretung zu ermöglichen und zu stärken.</p>`;
+
+    // Handlungsaufforderung
+    const L = DATEN.leitbild;
+    h += `<div class="cta"><h2>Werden Sie Teil der Gemeinschaft</h2>
+      <p><strong>${esc(L.mitglieder.text)}</strong> ${esc(L.wert.titel)}: ${esc(L.wert.text)}</p>
+      <p>Wir beraten Sie gern persönlich zur Mitgliedschaft und bestätigen Ihren Beitrag.</p>
+      <a class="knopf" href="${esc(DATEN.mitgliedWerden.url)}" target="_blank" rel="noopener">Mitglied werden</a></div>`;
+
+    $('#ergebnis').innerHTML = h;
+  }
+
+  function zuSchritt(n) {
+    if (n === 3) zeigeErgebnis();
+    $$('section.schritt').forEach(s => s.classList.toggle('aktiv', s.dataset.s == n));
+    $('#hero').style.display = n === 1 ? '' : 'none';
+    document.querySelector('main').classList.toggle('ohne-hero', n !== 1);
+    $$('#steps li').forEach(li => { li.classList.toggle('aktiv', li.dataset.s == n); li.classList.toggle('fertig', li.dataset.s < n); });
+    sichtbarkeit(); window.scrollTo(0, 0);
+  }
+  document.addEventListener('click', e => { const g = e.target.dataset.go; if (g) zuSchritt(+g); });
+  $$('input[name=art], #l-recht, #l-gema, #l-weiter').forEach(i => i.addEventListener('change', sichtbarkeit));
+
+  const ICON = {
+    politik: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><g transform="rotate(-45 12 10)"><rect x="7" y="3" width="10" height="5" rx="1"/><rect x="11" y="8" width="2" height="10" rx="1"/></g><rect x="2" y="19" width="11" height="3" rx="1"/></svg>',
+    gemeinschaft: '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="8" cy="7" r="3.2"/><circle cx="16.5" cy="7.5" r="2.7"/><path d="M1.5 20c0-3.9 2.9-7 6.5-7s6.5 3.1 6.5 7z"/><path d="M15.2 20c0-2.4-.8-4.5-2.1-5.9.9-.6 2.1-1 3.4-1 3.1 0 5.5 2.9 5.5 6.9z"/></svg>',
+    service: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M17.5 5.5A7.5 7.5 0 1 0 17.5 18.5"/><path d="M4 10h9M4 14h9"/></svg>'
+  };
+  $('#akad-frei').innerHTML = '<strong>Gut zu wissen:</strong> ' + esc(DATEN.weiterbildung.kostenloseSeminare.text);
+  (function hero() {
+    const L = DATEN.leitbild;
+    $('#hero').innerHTML = `<p class="eyebrow">Dafür stehen wir als DEHOGA Baden-Württemberg</p>
+      <h1 class="slogan">${esc(L.zeile1)}<span>${esc(L.zeile2)}</span></h1>
+      <div class="saeulen">${L.saeulen.map(x => `<div class="saeule">${ICON[x.icon] || ''}<h3>${esc(x.titel)}</h3><p>${esc(x.text)}</p></div>`).join('')}</div>
+      <div class="vertrauen"><strong class="zahl">11.000+</strong><span><strong>Mitglieder in Baden-Württemberg vertrauen uns.</strong><br>${esc(L.wert.titel)}: ${esc(L.wert.text)}</span></div>`;
+  })();
+  $('#quellen').innerHTML = '<details><summary>Quellen und Stand der Daten</summary><ul>' +
+    [...new Set(Object.values(Q).map(q => '<li>' + esc(q.quelle) + ' (' + esc(q.stand) + ')</li>'))].join('') + '</ul></details>Alle Beträge netto.';
+  zuSchritt(1);
+}
+if (typeof module !== 'undefined') module.exports = { DATEN, berechne, rvg, gkg, anwaltVergleichNetto, gemaGastro, gemaHotel, beitragJahr };
+</script>
+</body>
+</html>
